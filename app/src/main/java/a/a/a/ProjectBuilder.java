@@ -755,33 +755,93 @@ public class ProjectBuilder {
     }
 
     /**
-     * Extracts AAPT2 binaries (if they need to be extracted).
+     * Extracts AAPT2 binaries (if they need to be extracted) and ensures executable permissions.
+     * This method implements multiple fallback strategies to handle permission issues.
      *
      * @throws By If anything goes wrong while extracting
      */
     public void maybeExtractAapt2() throws By {
         var abi = Build.SUPPORTED_ABIS[0];
+        
         try {
-            // Always extract/check aapt2 binary
-            hasFileChanged("aapt/aapt2-" + abi, aapt2Binary.getAbsolutePath());
+            // Step 1: Extract or verify the binary exists
+            boolean wasExtracted = hasFileChanged("aapt/aapt2-" + abi, aapt2Binary.getAbsolutePath());
             
-            // Always set executable permissions, regardless of whether file was just extracted
-            // This is critical because permissions can be lost due to system cache clearing
-            if (aapt2Binary.exists()) {
-                Os.chmod(aapt2Binary.getAbsolutePath(), S_IRUSR | S_IWUSR | S_IXUSR);
-                LogUtil.d(TAG, "Set executable permissions on aapt2 binary at: " + aapt2Binary.getAbsolutePath());
-            } else {
-                throw new FileNotFoundException("aapt2 binary does not exist after extraction at: " + aapt2Binary.getAbsolutePath());
+            // Step 2: Verify file exists after extraction
+            if (!aapt2Binary.exists()) {
+                throw new FileNotFoundException("AAPT2 binary was not extracted successfully for ABI: " + abi);
             }
+            
+            // Step 3: Check current permissions
+            boolean needsPermissionFix = !aapt2Binary.canExecute();
+            
+            if (needsPermissionFix || wasExtracted) {
+                LogUtil.d(TAG, "Setting executable permissions for AAPT2 binary at: " + aapt2Binary.getAbsolutePath());
+                
+                // Strategy 1: Use Os.chmod (Primary method - Android API 21+)
+                try {
+                    Os.chmod(aapt2Binary.getAbsolutePath(), S_IRUSR | S_IWUSR | S_IXUSR);
+                    LogUtil.d(TAG, "Successfully set permissions using Os.chmod");
+                } catch (Exception chmodException) {
+                    LogUtil.w(TAG, "Os.chmod failed, trying fallback methods", chmodException);
+                    
+                    // Strategy 2: Use Java's setExecutable (Fallback)
+                    boolean setExecutableSuccess = aapt2Binary.setExecutable(true, false);
+                    if (setExecutableSuccess) {
+                        LogUtil.d(TAG, "Successfully set permissions using setExecutable");
+                    } else {
+                        // Strategy 3: Try using Runtime.exec with chmod command
+                        try {
+                            Process chmodProcess = Runtime.getRuntime().exec(
+                                new String[]{"chmod", "755", aapt2Binary.getAbsolutePath()}
+                            );
+                            int exitCode = chmodProcess.waitFor();
+                            
+                            if (exitCode == 0) {
+                                LogUtil.d(TAG, "Successfully set permissions using chmod command");
+                            } else {
+                                LogUtil.e(TAG, "chmod command failed with exit code: " + exitCode);
+                            }
+                        } catch (Exception runtimeException) {
+                            LogUtil.e(TAG, "Runtime chmod also failed", runtimeException);
+                        }
+                    }
+                }
+                
+                // Step 4: Verify permissions were set correctly
+                if (!aapt2Binary.canExecute()) {
+                    throw new By(
+                        "Failed to set executable permissions on AAPT2 binary.\n" +
+                        "Path: " + aapt2Binary.getAbsolutePath() + "\n" +
+                        "This might be due to:\n" +
+                        "1. SELinux restrictions\n" +
+                        "2. File system mounted as noexec\n" +
+                        "3. Storage permissions issues\n\n" +
+                        "Try:\n" +
+                        "- Clear app cache and data\n" +
+                        "- Reinstall the application\n" +
+                        "- Check device storage permissions"
+                    );
+                }
+            }
+            
+            // Step 5: Log success and file info
+            LogUtil.d(TAG, "AAPT2 binary ready. Can execute: " + aapt2Binary.canExecute() + 
+                           ", Size: " + aapt2Binary.length() + " bytes");
+            
+        } catch (FileNotFoundException fileNotFoundException) {
+            LogUtil.e(TAG, "Failed to extract AAPT2 binaries", fileNotFoundException);
+            throw new By(
+                "Looks like the device's architecture (" + abi + ") isn't supported.\n" +
+                "Supported ABIs: " + Arrays.toString(Build.SUPPORTED_ABIS) + "\n\n" +
+                Log.getStackTraceString(fileNotFoundException)
+            );
+        } catch (By byException) {
+            // Re-throw our custom exceptions
+            throw byException;
         } catch (Exception e) {
             LogUtil.e(TAG, "Failed to extract AAPT2 binaries", e);
-            // noinspection ConstantValue: the bytecode's lying
-            throw new By(
-                    e instanceof FileNotFoundException fileNotFoundException ?
-                            "Looks like the device's architecture (" + abi + ") isn't supported.\n"
-                                    + Log.getStackTraceString(fileNotFoundException)
-                            : "Couldn't extract AAPT2 binaries! Message: " + e.getMessage()
-            );
+            throw new By("Couldn't extract AAPT2 binaries! Message: " + e.getMessage());
         }
     }
 
