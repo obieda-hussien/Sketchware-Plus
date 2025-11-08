@@ -182,6 +182,7 @@ public class ProjectBuilder {
      */
     public void compileResources() throws Exception {
         timestampResourceCompilationStarted = System.currentTimeMillis();
+        LogUtil.d(TAG, "Starting resource compilation");
         ResourceCompiler compiler = new ResourceCompiler(
                 this,
                 aapt2Binary,
@@ -602,8 +603,10 @@ public class ProjectBuilder {
                 LogUtil.d(TAG, "System.err of Eclipse compiler: " + errOutputStream.getOut());
                 LogUtil.d(TAG, "Compiling Java files took " + (System.currentTimeMillis() - savedTimeMillis) + " ms");
             } else {
-                LogUtil.e(TAG, "Failed to compile Java files");
-                throw new zy(errOutputStream.getOut());
+                String errorOutput = errOutputStream.getOut();
+                LogUtil.e(TAG, "Failed to compile Java files with " + main.globalErrorsCount + " error(s)");
+                LogUtil.e(TAG, "Compilation errors: " + errorOutput);
+                throw new zy(errorOutput);
             }
         }
     }
