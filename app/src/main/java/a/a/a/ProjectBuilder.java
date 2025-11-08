@@ -767,11 +767,31 @@ public class ProjectBuilder {
             
             // Always ensure executable permissions are set, even if file wasn't re-extracted
             if (aapt2Binary.exists()) {
-                Os.chmod(aapt2Binary.getAbsolutePath(), S_IRUSR | S_IWUSR | S_IXUSR);
-                LogUtil.d(TAG, "Set executable permissions for aapt2 binary at: " + aapt2Binary.getAbsolutePath());
+                // Try using Os.chmod first (more reliable on Android)
+                try {
+                    Os.chmod(aapt2Binary.getAbsolutePath(), S_IRUSR | S_IWUSR | S_IXUSR);
+                    LogUtil.d(TAG, "Set executable permissions for aapt2 using Os.chmod at: " + aapt2Binary.getAbsolutePath());
+                } catch (Exception chmodException) {
+                    // Fallback to Java's setExecutable if Os.chmod fails
+                    LogUtil.w(TAG, "Os.chmod failed, trying File.setExecutable: " + chmodException.getMessage());
+                    if (aapt2Binary.setExecutable(true, false)) {
+                        LogUtil.d(TAG, "Set executable permissions for aapt2 using File.setExecutable");
+                    } else {
+                        LogUtil.e(TAG, "Failed to set executable permissions using both Os.chmod and File.setExecutable");
+                        throw new Exception("Unable to set executable permissions on aapt2 binary");
+                    }
+                }
+                
+                // Verify the file is actually executable
+                if (!aapt2Binary.canExecute()) {
+                    LogUtil.e(TAG, "aapt2 binary is not executable after permission setting");
+                    throw new Exception("aapt2 binary is not executable after setting permissions");
+                }
+            } else {
+                throw new FileNotFoundException("aapt2 binary does not exist at: " + aapt2Binary.getAbsolutePath());
             }
         } catch (Exception e) {
-            LogUtil.e(TAG, "Failed to extract AAPT2 binaries", e);
+            LogUtil.e(TAG, "Failed to extract or set permissions for AAPT2 binaries", e);
             // noinspection ConstantValue: the bytecode's lying
             throw new By(
                     e instanceof FileNotFoundException fileNotFoundException ?
