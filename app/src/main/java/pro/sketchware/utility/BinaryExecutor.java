@@ -51,10 +51,22 @@ public class BinaryExecutor {
                 String error = "Binary is not executable: " + binaryPath + 
                               "\nPermissions: r=" + binaryFile.canRead() + 
                               ", w=" + binaryFile.canWrite() + 
-                              ", x=" + binaryFile.canExecute();
-                LogUtil.e(TAG, error);
+                              ", x=" + binaryFile.canExecute() +
+                              "\nAttempting to fix permissions...";
+                LogUtil.w(TAG, error);
                 mWriter.append(error).append(System.lineSeparator());
-                return mWriter.toString();
+                
+                // ✅ ATTEMPT TO FIX PERMISSIONS
+                boolean fixed = attemptPermissionFix(binaryFile);
+                if (!fixed) {
+                    String permError = "Failed to fix permissions. Please clear app cache and rebuild.";
+                    LogUtil.e(TAG, permError);
+                    mWriter.append(permError).append(System.lineSeparator());
+                    return mWriter.toString();
+                } else {
+                    LogUtil.d(TAG, "Successfully fixed permissions for: " + binaryPath);
+                    mWriter.append("✅ Permissions fixed successfully").append(System.lineSeparator());
+                }
             }
             
             // Start the process
@@ -139,5 +151,68 @@ public class BinaryExecutor {
     
     public String getOutput() {
         return mOutputWriter.toString();
+    }
+    
+    /**
+     * Attempts to fix file permissions using multiple strategies.
+     * Implements a triple fallback approach to handle various Android security configurations.
+     * 
+     * @param binaryFile The binary file that needs executable permissions
+     * @return true if permissions were successfully set, false otherwise
+     */
+    private boolean attemptPermissionFix(File binaryFile) {
+        try {
+            LogUtil.d(TAG, "Attempting permission fix for: " + binaryFile.getAbsolutePath());
+            
+            // Strategy 1: Try Os.chmod (Android native API - most reliable)
+            try {
+                android.system.Os.chmod(binaryFile.getAbsolutePath(), 
+                    android.system.OsConstants.S_IRUSR | 
+                    android.system.OsConstants.S_IWUSR | 
+                    android.system.OsConstants.S_IXUSR);
+                
+                if (binaryFile.canExecute()) {
+                    LogUtil.d(TAG, "✅ Os.chmod succeeded");
+                    return true;
+                }
+            } catch (Exception e) {
+                LogUtil.w(TAG, "Os.chmod failed: " + e.getMessage());
+            }
+            
+            // Strategy 2: Try Java's setExecutable (cross-platform fallback)
+            try {
+                boolean success = binaryFile.setExecutable(true, false);
+                if (success && binaryFile.canExecute()) {
+                    LogUtil.d(TAG, "✅ setExecutable succeeded");
+                    return true;
+                }
+            } catch (Exception e) {
+                LogUtil.w(TAG, "setExecutable failed: " + e.getMessage());
+            }
+            
+            // Strategy 3: Try shell chmod command (last resort)
+            try {
+                Process chmodProcess = Runtime.getRuntime().exec(
+                    new String[]{"chmod", "755", binaryFile.getAbsolutePath()}
+                );
+                int exitCode = chmodProcess.waitFor();
+                
+                if (exitCode == 0 && binaryFile.canExecute()) {
+                    LogUtil.d(TAG, "✅ Shell chmod succeeded");
+                    return true;
+                } else {
+                    LogUtil.w(TAG, "Shell chmod exited with code: " + exitCode);
+                }
+            } catch (Exception e) {
+                LogUtil.w(TAG, "Shell chmod failed: " + e.getMessage());
+            }
+            
+            LogUtil.e(TAG, "❌ All permission fix strategies failed");
+            return false;
+            
+        } catch (Exception e) {
+            LogUtil.e(TAG, "Exception during permission fix attempt", e);
+            return false;
+        }
     }
 }
