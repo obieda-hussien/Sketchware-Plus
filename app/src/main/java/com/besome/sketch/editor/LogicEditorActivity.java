@@ -136,7 +136,7 @@ public class LogicEditorActivity extends BaseAppCompatActivity implements View.O
 
     private final Handler handler = new Handler();
     private final int[] v = new int[2];
-    private final FirebaseCrashlytics crashlytics = FirebaseCrashlytics.getInstance();
+    private FirebaseCrashlytics crashlytics;
     public ProjectFileBean M;
     public PaletteBlock m;
     public BlockPane o;
@@ -188,7 +188,9 @@ public class LogicEditorActivity extends BaseAppCompatActivity implements View.O
     }
 
     private void loadEventBlocks() {
-        crashlytics.log("Loading event blocks");
+        if (crashlytics != null) {
+            crashlytics.log("Loading event blocks");
+        }
         ArrayList<BlockBean> eventBlocks = jC.a(scId).a(M.getJavaName(), id + "_" + eventName);
         if (eventBlocks != null) {
             if (eventBlocks.isEmpty()) {
@@ -447,7 +449,9 @@ public class LogicEditorActivity extends BaseAppCompatActivity implements View.O
         try {
             new Handler().postDelayed(() -> new ProjectSaver(this).execute(), 500L);
         } catch (Exception e) {
-            crashlytics.recordException(e);
+            if (crashlytics != null) {
+                crashlytics.recordException(e);
+            }
         }
     }
 
@@ -561,8 +565,10 @@ public class LogicEditorActivity extends BaseAppCompatActivity implements View.O
                         XmlToSvgConverter xmlToSvgConverter = new XmlToSvgConverter();
                         xmlToSvgConverter.setImageVectorFromFile(imageView, xmlToSvgConverter.getVectorFullPath(DesignActivity.sc_id, str));
                     } catch (Exception e) {
-                        crashlytics.log("Converting SVG to XML.");
-                        crashlytics.recordException(e);
+                        if (crashlytics != null) {
+                            crashlytics.log("Converting SVG to XML.");
+                            crashlytics.recordException(e);
+                        }
                         imageView.setImageResource(R.drawable.ic_remove_grey600_24dp);
                     }
                 }
@@ -1200,7 +1206,9 @@ public class LogicEditorActivity extends BaseAppCompatActivity implements View.O
             Mp.h().a(str, arrayList2, true);
             O.a(str, arrayList2).setOnTouchListener(this);
         } catch (Exception e) {
-            crashlytics.recordException(e);
+            if (crashlytics != null) {
+                crashlytics.recordException(e);
+            }
         }
     }
 
@@ -1371,8 +1379,10 @@ public class LogicEditorActivity extends BaseAppCompatActivity implements View.O
             try {
                 typeface = Typeface.createFromFile(jC.d(scId).d(fontName));
             } catch (RuntimeException e) {
-                crashlytics.log("Loading font preview");
-                crashlytics.recordException(e);
+                if (crashlytics != null) {
+                    crashlytics.log("Loading font preview");
+                    crashlytics.recordException(e);
+                }
                 typeface = Typeface.DEFAULT;
                 preview.setText("Couldn't load font");
             }
@@ -1901,6 +1911,16 @@ public class LogicEditorActivity extends BaseAppCompatActivity implements View.O
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        
+        // Initialize Firebase Crashlytics if enabled
+        if (pro.sketchware.BuildConfig.FIREBASE_ENABLED) {
+            try {
+                crashlytics = FirebaseCrashlytics.getInstance();
+            } catch (IllegalStateException e) {
+                // Firebase not initialized, will skip crashlytics logging
+            }
+        }
+        
         setContentView(R.layout.logic_editor);
         if (!super.isStoragePermissionGranted()) {
             finish();

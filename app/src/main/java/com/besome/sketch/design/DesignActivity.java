@@ -129,7 +129,7 @@ import pro.sketchware.utility.apk.ApkSignatures;
 public class DesignActivity extends BaseAppCompatActivity implements View.OnClickListener {
     public static String sc_id;
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final FirebaseCrashlytics crashlytics = FirebaseCrashlytics.getInstance();
+    private FirebaseCrashlytics crashlytics;
     private ImageView xmlLayoutOrientation;
     private boolean B;
     private int currentTabNumber;
@@ -436,6 +436,17 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
     public void onCreate(Bundle savedInstanceState) {
         enableEdgeToEdgeNoContrast();
         super.onCreate(savedInstanceState);
+        
+        // Initialize Firebase Crashlytics if enabled
+        if (pro.sketchware.BuildConfig.FIREBASE_ENABLED) {
+            try {
+                crashlytics = FirebaseCrashlytics.getInstance();
+            } catch (IllegalStateException e) {
+                // Firebase not properly initialized, will skip crashlytics logging
+                Log.w("DesignActivity", "Firebase Crashlytics not available", e);
+            }
+        }
+        
         setContentView(R.layout.design);
         if (!isStoragePermissionGranted()) {
             finish();
@@ -641,8 +652,10 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
             ProjectLoader projectLoader = new ProjectLoader(this, savedInstanceState);
             projectLoader.execute();
         } catch (Exception e) {
-            crashlytics.log("ProjectLoader failed");
-            crashlytics.recordException(e);
+            if (crashlytics != null) {
+                crashlytics.log("ProjectLoader failed");
+                crashlytics.recordException(e);
+            }
         } finally {
             SystemLogPrinter.stop();
         }
@@ -700,7 +713,9 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
                 try {
                     saveChangesAndCloseProject();
                 } catch (Exception e) {
-                    crashlytics.recordException(e);
+                    if (crashlytics != null) {
+                        crashlytics.recordException(e);
+                    }
                     h();
                 }
             }
@@ -713,7 +728,9 @@ public class DesignActivity extends BaseAppCompatActivity implements View.OnClic
                     DiscardChangesProjectCloser discardChangesProjectCloser = new DiscardChangesProjectCloser(this);
                     discardChangesProjectCloser.execute();
                 } catch (Exception e) {
-                    crashlytics.recordException(e);
+                    if (crashlytics != null) {
+                        crashlytics.recordException(e);
+                    }
                     h();
                 }
             }
