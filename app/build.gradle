@@ -20,8 +20,8 @@ android {
         namespace = "pro.sketchware"
         // Updated to modern Android SDK version for better compatibility and features
         targetSdk = 35
-        // Lowered to support more devices (Android 7.0+)
-        minSdk = 24
+        // Keep minSdk at 26 due to dependency requirements (MethodHandle.invoke requires API 26+)
+        minSdk = 26
         versionCode = 151
         versionName = "v7.1.0"
 
