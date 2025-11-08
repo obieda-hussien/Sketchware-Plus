@@ -762,8 +762,13 @@ public class ProjectBuilder {
     public void maybeExtractAapt2() throws By {
         var abi = Build.SUPPORTED_ABIS[0];
         try {
-            if (hasFileChanged("aapt/aapt2-" + abi, aapt2Binary.getAbsolutePath())) {
+            // Extract aapt2 if needed
+            hasFileChanged("aapt/aapt2-" + abi, aapt2Binary.getAbsolutePath());
+            
+            // Always ensure executable permissions are set, even if file wasn't re-extracted
+            if (aapt2Binary.exists()) {
                 Os.chmod(aapt2Binary.getAbsolutePath(), S_IRUSR | S_IWUSR | S_IXUSR);
+                LogUtil.d(TAG, "Set executable permissions for aapt2 binary at: " + aapt2Binary.getAbsolutePath());
             }
         } catch (Exception e) {
             LogUtil.e(TAG, "Failed to extract AAPT2 binaries", e);
