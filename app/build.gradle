@@ -18,15 +18,22 @@ android {
     defaultConfig {
         applicationId = "pro.sketchware"
         namespace = "pro.sketchware"
-        //noinspection ExpiredTargetSdkVersion since we don't target getting Sketchware Pro on Google Play.
-        targetSdk = 28
-        minSdk = 26
-        versionCode = 150
-        versionName = "v7.0.0"
+        // Updated to modern Android SDK version for better compatibility and features
+        targetSdk = 35
+        // Lowered to support more devices (Android 7.0+)
+        minSdk = 24
+        versionCode = 151
+        versionName = "v7.1.0"
 
         buildConfigField("String", "GIT_HASH", "\"${gitCommitHash}\"")
 
         buildConfigField("String", "SKETCHUB_API_KEY", "\"${System.getenv("SKETCHUB_API_KEY")}\"")
+        
+        // Enable vector drawable support for older Android versions
+        vectorDrawables.useSupportLibrary = true
+        
+        // Test instrumentation runner
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -34,6 +41,19 @@ android {
             minifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.debug
+            
+            // Performance optimizations
+            ndk {
+                debugSymbolLevel = 'FULL'
+            }
+        }
+        
+        debug {
+            // Enable debugging features
+            debuggable = true
+            
+            // Faster builds for debug
+            minifyEnabled = false
         }
     }
 
