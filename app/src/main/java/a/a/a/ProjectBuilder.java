@@ -126,13 +126,7 @@ public class ProjectBuilder {
             LogUtil.e(TAG, "Somehow failed to get package info about us!", e);
         }
 
-        aapt2Binary = new File(context.getFilesDir(), "aapt2_bin/aapt2");
-        // Ensure the parent directory exists with proper permissions
-        File aapt2Dir = aapt2Binary.getParentFile();
-        if (aapt2Dir != null && !aapt2Dir.exists()) {
-            aapt2Dir.mkdirs();
-        }
-        
+        aapt2Binary = new File(context.getCacheDir(), "aapt2");
         build_settings = new BuildSettings(yqVar.sc_id);
         this.context = context;
         yq = yqVar;
@@ -761,144 +755,34 @@ public class ProjectBuilder {
     }
 
     /**
-     * Extracts AAPT2 binaries (if they need to be extracted) with robust permission handling.
-     * This method implements multiple fallback strategies to ensure the binary is executable:
-     * 1. Native Os.chmod (preferred on Android)
-     * 2. Java File.setExecutable
-     * 3. Shell command via Runtime.exec (last resort)
-     * 4. Retry logic with exponential backoff
+     * Extracts AAPT2 binaries (if they need to be extracted).
      *
-     * @throws By If anything goes wrong while extracting or setting permissions
+     * @throws By If anything goes wrong while extracting
      */
     public void maybeExtractAapt2() throws By {
         var abi = Build.SUPPORTED_ABIS[0];
-        int maxRetries = 3;
-        int retryDelay = 500; // milliseconds
-        
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                LogUtil.d(TAG, "Attempting to extract and prepare aapt2 binary (attempt " + attempt + "/" + maxRetries + ")");
-                
-                // Extract aapt2 if needed
-                boolean wasExtracted = hasFileChanged("aapt/aapt2-" + abi, aapt2Binary.getAbsolutePath());
-                
-                if (!aapt2Binary.exists()) {
-                    throw new FileNotFoundException("aapt2 binary does not exist at: " + aapt2Binary.getAbsolutePath());
-                }
-                
-                LogUtil.d(TAG, "aapt2 binary " + (wasExtracted ? "extracted" : "already exists") + " at: " + aapt2Binary.getAbsolutePath());
-                
-                // Always ensure executable permissions are set with multiple fallback methods
-                if (!setExecutablePermissions(aapt2Binary, attempt)) {
-                    if (attempt < maxRetries) {
-                        LogUtil.w(TAG, "Failed to set executable permissions, retrying after " + retryDelay + "ms...");
-                        Thread.sleep(retryDelay);
-                        retryDelay *= 2; // Exponential backoff
-                        continue;
-                    } else {
-                        throw new Exception("Failed to set executable permissions after " + maxRetries + " attempts");
-                    }
-                }
-                
-                // Verify the file is actually executable
-                if (!aapt2Binary.canExecute()) {
-                    LogUtil.e(TAG, "aapt2 binary is not executable after permission setting");
-                    if (attempt < maxRetries) {
-                        LogUtil.w(TAG, "Binary not executable, retrying...");
-                        Thread.sleep(retryDelay);
-                        retryDelay *= 2;
-                        continue;
-                    } else {
-                        throw new Exception("aapt2 binary is not executable after setting permissions");
-                    }
-                }
-                
-                LogUtil.d(TAG, "aapt2 binary is ready and executable at: " + aapt2Binary.getAbsolutePath());
-                return; // Success!
-                
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                throw new By("Interrupted while preparing aapt2 binary: " + ie.getMessage());
-            } catch (Exception e) {
-                if (attempt >= maxRetries) {
-                    LogUtil.e(TAG, "Failed to extract or set permissions for AAPT2 binaries after " + maxRetries + " attempts", e);
-                    // noinspection ConstantValue: the bytecode's lying
-                    throw new By(
-                            e instanceof FileNotFoundException fileNotFoundException ?
-                                    "Looks like the device's architecture (" + abi + ") isn't supported.\n"
-                                            + Log.getStackTraceString(fileNotFoundException)
-                                    : "Couldn't extract AAPT2 binaries! Message: " + e.getMessage()
-                    );
-                }
-                LogUtil.w(TAG, "Attempt " + attempt + " failed: " + e.getMessage());
-            }
-        }
-    }
-    
-    /**
-     * Sets executable permissions on a file using multiple fallback methods.
-     * 
-     * @param file The file to make executable
-     * @param attempt Current attempt number (for logging)
-     * @return true if permissions were successfully set, false otherwise
-     */
-    private boolean setExecutablePermissions(File file, int attempt) {
-        String filePath = file.getAbsolutePath();
-        
-        // Method 1: Try Os.chmod first (native Android, most reliable when it works)
         try {
-            Os.chmod(filePath, S_IRUSR | S_IWUSR | S_IXUSR);
-            LogUtil.d(TAG, "Successfully set executable permissions using Os.chmod");
-            return true;
-        } catch (Exception e) {
-            LogUtil.w(TAG, "Os.chmod failed: " + e.getMessage());
-        }
-        
-        // Method 2: Try Java's File.setExecutable
-        try {
-            boolean ownerOnly = false; // Make it executable for all users
-            if (file.setExecutable(true, ownerOnly)) {
-                LogUtil.d(TAG, "Successfully set executable permissions using File.setExecutable");
-                return true;
+            // Always extract/check aapt2 binary
+            hasFileChanged("aapt/aapt2-" + abi, aapt2Binary.getAbsolutePath());
+            
+            // Always set executable permissions, regardless of whether file was just extracted
+            // This is critical because permissions can be lost due to system cache clearing
+            if (aapt2Binary.exists()) {
+                Os.chmod(aapt2Binary.getAbsolutePath(), S_IRUSR | S_IWUSR | S_IXUSR);
+                LogUtil.d(TAG, "Set executable permissions on aapt2 binary at: " + aapt2Binary.getAbsolutePath());
             } else {
-                LogUtil.w(TAG, "File.setExecutable returned false");
+                throw new FileNotFoundException("aapt2 binary does not exist after extraction at: " + aapt2Binary.getAbsolutePath());
             }
         } catch (Exception e) {
-            LogUtil.w(TAG, "File.setExecutable failed: " + e.getMessage());
+            LogUtil.e(TAG, "Failed to extract AAPT2 binaries", e);
+            // noinspection ConstantValue: the bytecode's lying
+            throw new By(
+                    e instanceof FileNotFoundException fileNotFoundException ?
+                            "Looks like the device's architecture (" + abi + ") isn't supported.\n"
+                                    + Log.getStackTraceString(fileNotFoundException)
+                            : "Couldn't extract AAPT2 binaries! Message: " + e.getMessage()
+            );
         }
-        
-        // Method 3: Try shell command as last resort (for devices with restricted APIs)
-        try {
-            Process process = Runtime.getRuntime().exec(new String[]{"chmod", "755", filePath});
-            int exitCode = process.waitFor();
-            if (exitCode == 0) {
-                LogUtil.d(TAG, "Successfully set executable permissions using shell chmod command");
-                return true;
-            } else {
-                LogUtil.w(TAG, "Shell chmod command returned exit code: " + exitCode);
-            }
-        } catch (Exception e) {
-            LogUtil.w(TAG, "Shell chmod command failed: " + e.getMessage());
-        }
-        
-        // Method 4: Try alternative shell command with su (if device is rooted - rare but possible)
-        if (attempt == 3) { // Only try on last attempt to avoid unnecessary delays
-            try {
-                Process process = Runtime.getRuntime().exec(new String[]{"su", "-c", "chmod 755 " + filePath});
-                int exitCode = process.waitFor();
-                if (exitCode == 0) {
-                    LogUtil.d(TAG, "Successfully set executable permissions using su chmod command");
-                    return true;
-                } else {
-                    LogUtil.w(TAG, "su chmod command returned exit code: " + exitCode);
-                }
-            } catch (Exception e) {
-                LogUtil.w(TAG, "su chmod command failed (device may not be rooted): " + e.getMessage());
-            }
-        }
-        
-        LogUtil.e(TAG, "All methods to set executable permissions failed");
-        return false;
     }
 
     /**
