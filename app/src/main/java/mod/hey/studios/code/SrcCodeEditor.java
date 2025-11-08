@@ -96,12 +96,14 @@ public class SrcCodeEditor extends BaseAppCompatActivity {
         boolean word_wrap = pref.getBoolean(prefix + "_ww", false);
         boolean auto_c = pref.getBoolean(prefix + "_ac", true);
         boolean auto_complete_symbol_pairs = pref.getBoolean(prefix + "_acsp", true);
+        boolean show_line_numbers = pref.getBoolean(prefix + "_line_numbers", true);
 
         if (loadTheme) selectTheme(ed, theme);
         ed.setTextSize(text_size);
         ed.setWordwrap(word_wrap);
         ed.getProps().symbolPairAutoCompletion = auto_complete_symbol_pairs;
         ed.getComponent(EditorAutoCompletion.class).setEnabled(auto_c);
+        ed.setLineNumberEnabled(show_line_numbers);
     }
 
     public static void selectTheme(CodeEditor ed, int which) {
@@ -287,6 +289,9 @@ public class SrcCodeEditor extends BaseAppCompatActivity {
 
         binding.editor.setTypefaceText(EditorUtils.getTypeface(this));
         binding.editor.setTextSize(16);
+        
+        // Configure undo/redo for better editing experience
+        binding.editor.setUndoEnabled(true);
 
         if (fromAndroidManifest) {
             String filePath = FileUtil.getExternalStorageDir() + "/.sketchware/data/" + scId + "/Injection/androidmanifest/activities_components.json";
@@ -397,6 +402,7 @@ public class SrcCodeEditor extends BaseAppCompatActivity {
             }
             toolbarMenu.add(Menu.NONE, Menu.NONE, Menu.NONE, "Find & Replace");
             toolbarMenu.add(Menu.NONE, Menu.NONE, Menu.NONE, "Word wrap").setCheckable(true).setChecked(local_pref.getBoolean("act_ww", false));
+            toolbarMenu.add(Menu.NONE, Menu.NONE, Menu.NONE, "Line numbers").setCheckable(true).setChecked(local_pref.getBoolean("act_line_numbers", true));
             toolbarMenu.add(Menu.NONE, Menu.NONE, Menu.NONE, "Pretty print");
             toolbarMenu.add(Menu.NONE, Menu.NONE, Menu.NONE, "Select language");
             toolbarMenu.add(Menu.NONE, Menu.NONE, Menu.NONE, "Select theme");
@@ -480,6 +486,13 @@ public class SrcCodeEditor extends BaseAppCompatActivity {
                         binding.editor.setWordwrap(item.isChecked());
 
                         pref.edit().putBoolean("act_ww", item.isChecked()).apply();
+                        break;
+
+                    case "Line numbers":
+                        item.setChecked(!item.isChecked());
+                        binding.editor.setLineNumberEnabled(item.isChecked());
+
+                        pref.edit().putBoolean("act_line_numbers", item.isChecked()).apply();
                         break;
 
                     case "Auto complete symbol pair":

@@ -182,6 +182,7 @@ public class ProjectBuilder {
      */
     public void compileResources() throws Exception {
         timestampResourceCompilationStarted = System.currentTimeMillis();
+        LogUtil.d(TAG, "Starting resource compilation");
         ResourceCompiler compiler = new ResourceCompiler(
                 this,
                 aapt2Binary,
@@ -265,7 +266,19 @@ public class ProjectBuilder {
         }
     }
 
+    /**
+     * Cache for classpath to avoid redundant regeneration
+     */
+    private String cachedClasspath = null;
+    private long classpathCacheTimestamp = 0;
+
     public String getClasspath() {
+        // Return cached classpath if it was generated less than 5 seconds ago
+        long currentTime = System.currentTimeMillis();
+        if (cachedClasspath != null && (currentTime - classpathCacheTimestamp) < 5000) {
+            return cachedClasspath;
+        }
+
         StringBuilder classpath = new StringBuilder();
 
         /*
@@ -316,7 +329,12 @@ public class ProjectBuilder {
         ArrayList<String> jars = FileUtil.listFiles(path, "jar");
         classpath.append(":").append(TextUtils.join(":", jars));
 
-        return classpath.toString();
+        // Cache the result
+        String result = classpath.toString();
+        cachedClasspath = result;
+        classpathCacheTimestamp = System.currentTimeMillis();
+        
+        return result;
     }
 
     /**
@@ -368,8 +386,8 @@ public class ProjectBuilder {
     private Collection<File> dexLibraries(File outputDirectory, List<File> dexes) throws Exception {
         int lastDexNumber = 1;
         String nextMergedDexFilename;
-        Collection<File> resultDexFiles = new LinkedList<>();
-        LinkedList<Dex> dexObjects = new LinkedList<>();
+        Collection<File> resultDexFiles = new ArrayList<>();
+        ArrayList<Dex> dexObjects = new ArrayList<>();
         Iterator<File> toMergeIterator = dexes.iterator();
 
         List<FieldId> mergedDexFields;
@@ -381,10 +399,10 @@ public class ProjectBuilder {
             // Closable gets closed automatically
             Dex firstDex = new Dex(new FileInputStream(toMergeIterator.next()));
             dexObjects.add(firstDex);
-            mergedDexFields = new LinkedList<>(firstDex.fieldIds());
-            mergedDexMethods = new LinkedList<>(firstDex.methodIds());
-            mergedDexProtos = new LinkedList<>(firstDex.protoIds());
-            mergedDexTypes = new LinkedList<>(firstDex.typeIds());
+            mergedDexFields = new ArrayList<>(firstDex.fieldIds());
+            mergedDexMethods = new ArrayList<>(firstDex.methodIds());
+            mergedDexProtos = new ArrayList<>(firstDex.protoIds());
+            mergedDexTypes = new ArrayList<>(firstDex.typeIds());
         }
 
         while (toMergeIterator.hasNext()) {
@@ -395,10 +413,10 @@ public class ProjectBuilder {
             Dex dex = new Dex(new FileInputStream(dexFile));
 
             boolean canMerge = true;
-            List<FieldId> newDexFieldIds = new LinkedList<>();
-            List<MethodId> newDexMethodIds = new LinkedList<>();
-            List<ProtoId> newDexProtoIds = new LinkedList<>();
-            List<Integer> newDexTypeIds = new LinkedList<>();
+            List<FieldId> newDexFieldIds = new ArrayList<>();
+            List<MethodId> newDexMethodIds = new ArrayList<>();
+            List<ProtoId> newDexProtoIds = new ArrayList<>();
+            List<Integer> newDexTypeIds = new ArrayList<>();
 
             bruh:
             {
@@ -510,7 +528,7 @@ public class ProjectBuilder {
 
         class EclipseOutOutputStream extends OutputStream {
 
-            private final StringBuffer mBuffer = new StringBuffer();
+            private final StringBuilder mBuffer = new StringBuilder();
 
             @Override
             public void write(int b) {
@@ -524,7 +542,7 @@ public class ProjectBuilder {
 
         class EclipseErrOutputStream extends OutputStream {
 
-            private final StringBuffer mBuffer = new StringBuffer();
+            private final StringBuilder mBuffer = new StringBuilder();
 
             @Override
             public void write(int b) {
@@ -585,8 +603,10 @@ public class ProjectBuilder {
                 LogUtil.d(TAG, "System.err of Eclipse compiler: " + errOutputStream.getOut());
                 LogUtil.d(TAG, "Compiling Java files took " + (System.currentTimeMillis() - savedTimeMillis) + " ms");
             } else {
-                LogUtil.e(TAG, "Failed to compile Java files");
-                throw new zy(errOutputStream.getOut());
+                String errorOutput = errOutputStream.getOut();
+                LogUtil.e(TAG, "Failed to compile Java files with " + main.globalErrorsCount + " error(s)");
+                LogUtil.e(TAG, "Compilation errors: " + errorOutput);
+                throw new zy(errorOutput);
             }
         }
     }
@@ -661,9 +681,13 @@ public class ProjectBuilder {
         long savedTimeMillis = System.currentTimeMillis();
         ArrayList<File> dexes = new ArrayList<>();
 
+        LogUtil.d(TAG, "Starting DEX preparation for minSdk " + settings.getMinSdkVersion());
+
         /* Add AndroidX MultiDex library if needed */
         if (settings.getMinSdkVersion() < 21) {
-            dexes.add(BuiltInLibraries.getLibraryDexFile(BuiltInLibraries.ANDROIDX_MULTIDEX));
+            File multiDexFile = BuiltInLibraries.getLibraryDexFile(BuiltInLibraries.ANDROIDX_MULTIDEX);
+            dexes.add(multiDexFile);
+            LogUtil.d(TAG, "Added MultiDex library: " + multiDexFile.getAbsolutePath());
         }
 
         /* Add HTTP legacy files if wanted */
@@ -731,25 +755,93 @@ public class ProjectBuilder {
     }
 
     /**
-     * Extracts AAPT2 binaries (if they need to be extracted).
+     * Extracts AAPT2 binaries (if they need to be extracted) and ensures executable permissions.
+     * This method implements multiple fallback strategies to handle permission issues.
      *
      * @throws By If anything goes wrong while extracting
      */
     public void maybeExtractAapt2() throws By {
         var abi = Build.SUPPORTED_ABIS[0];
+        
         try {
-            if (hasFileChanged("aapt/aapt2-" + abi, aapt2Binary.getAbsolutePath())) {
-                Os.chmod(aapt2Binary.getAbsolutePath(), S_IRUSR | S_IWUSR | S_IXUSR);
+            // Step 1: Extract or verify the binary exists
+            boolean wasExtracted = hasFileChanged("aapt/aapt2-" + abi, aapt2Binary.getAbsolutePath());
+            
+            // Step 2: Verify file exists after extraction
+            if (!aapt2Binary.exists()) {
+                throw new FileNotFoundException("AAPT2 binary was not extracted successfully for ABI: " + abi);
             }
+            
+            // Step 3: Check current permissions
+            boolean needsPermissionFix = !aapt2Binary.canExecute();
+            
+            if (needsPermissionFix || wasExtracted) {
+                LogUtil.d(TAG, "Setting executable permissions for AAPT2 binary at: " + aapt2Binary.getAbsolutePath());
+                
+                // Strategy 1: Use Os.chmod (Primary method - Android API 21+)
+                try {
+                    Os.chmod(aapt2Binary.getAbsolutePath(), S_IRUSR | S_IWUSR | S_IXUSR);
+                    LogUtil.d(TAG, "Successfully set permissions using Os.chmod");
+                } catch (Exception chmodException) {
+                    LogUtil.w(TAG, "Os.chmod failed, trying fallback methods", chmodException);
+                    
+                    // Strategy 2: Use Java's setExecutable (Fallback)
+                    boolean setExecutableSuccess = aapt2Binary.setExecutable(true, false);
+                    if (setExecutableSuccess) {
+                        LogUtil.d(TAG, "Successfully set permissions using setExecutable");
+                    } else {
+                        // Strategy 3: Try using Runtime.exec with chmod command
+                        try {
+                            Process chmodProcess = Runtime.getRuntime().exec(
+                                new String[]{"chmod", "755", aapt2Binary.getAbsolutePath()}
+                            );
+                            int exitCode = chmodProcess.waitFor();
+                            
+                            if (exitCode == 0) {
+                                LogUtil.d(TAG, "Successfully set permissions using chmod command");
+                            } else {
+                                LogUtil.e(TAG, "chmod command failed with exit code: " + exitCode);
+                            }
+                        } catch (Exception runtimeException) {
+                            LogUtil.e(TAG, "Runtime chmod also failed", runtimeException);
+                        }
+                    }
+                }
+                
+                // Step 4: Verify permissions were set correctly
+                if (!aapt2Binary.canExecute()) {
+                    throw new By(
+                        "Failed to set executable permissions on AAPT2 binary.\n" +
+                        "Path: " + aapt2Binary.getAbsolutePath() + "\n" +
+                        "This might be due to:\n" +
+                        "1. SELinux restrictions\n" +
+                        "2. File system mounted as noexec\n" +
+                        "3. Storage permissions issues\n\n" +
+                        "Try:\n" +
+                        "- Clear app cache and data\n" +
+                        "- Reinstall the application\n" +
+                        "- Check device storage permissions"
+                    );
+                }
+            }
+            
+            // Step 5: Log success and file info
+            LogUtil.d(TAG, "AAPT2 binary ready. Can execute: " + aapt2Binary.canExecute() + 
+                           ", Size: " + aapt2Binary.length() + " bytes");
+            
+        } catch (FileNotFoundException fileNotFoundException) {
+            LogUtil.e(TAG, "Failed to extract AAPT2 binaries", fileNotFoundException);
+            throw new By(
+                "Looks like the device's architecture (" + abi + ") isn't supported.\n" +
+                "Supported ABIs: " + Arrays.toString(Build.SUPPORTED_ABIS) + "\n\n" +
+                Log.getStackTraceString(fileNotFoundException)
+            );
+        } catch (By byException) {
+            // Re-throw our custom exceptions
+            throw byException;
         } catch (Exception e) {
             LogUtil.e(TAG, "Failed to extract AAPT2 binaries", e);
-            // noinspection ConstantValue: the bytecode's lying
-            throw new By(
-                    e instanceof FileNotFoundException fileNotFoundException ?
-                            "Looks like the device's architecture (" + abi + ") isn't supported.\n"
-                                    + Log.getStackTraceString(fileNotFoundException)
-                            : "Couldn't extract AAPT2 binaries! Message: " + e.getMessage()
-            );
+            throw new By("Couldn't extract AAPT2 binaries! Message: " + e.getMessage());
         }
     }
 
@@ -1006,5 +1098,13 @@ public class ProjectBuilder {
 
     public void setBuildAppBundle(boolean buildAppBundle) {
         this.buildAppBundle = buildAppBundle;
+    }
+
+    /**
+     * Clear the cached classpath. Should be called when dependencies change.
+     */
+    public void clearClasspathCache() {
+        cachedClasspath = null;
+        classpathCacheTimestamp = 0;
     }
 }

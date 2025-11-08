@@ -33,15 +33,24 @@ public class EditorUtils {
         var surfaceContainerHighest = MaterialColors.getColor(editor, R.attr.colorSurfaceContainerHighest);
         var onSurface = MaterialColors.getColor(editor, R.attr.colorOnSurface);
         var onSurfaceVariant = MaterialColors.getColor(editor, R.attr.colorOnSurfaceVariant);
+        
+        // Keywords and function names
         scheme.setColor(EditorColorScheme.KEYWORD, primary);
         scheme.setColor(EditorColorScheme.FUNCTION_NAME, primary);
+        
+        // Background colors
         scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND, surface);
         scheme.setColor(EditorColorScheme.CURRENT_LINE, surfaceContainerLow);
+        
+        // Line number panel
         scheme.setColor(EditorColorScheme.LINE_NUMBER_PANEL, surfaceContainer);
         scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, surfaceContainer);
         scheme.setColor(EditorColorScheme.LINE_DIVIDER, surfaceContainerHighest);
+        
+        // Text colors
         scheme.setColor(EditorColorScheme.TEXT_NORMAL, onSurface);
         scheme.setColor(EditorColorScheme.SELECTION_INSERT, onSurfaceVariant);
+        
         return scheme;
     }
 
@@ -75,5 +84,23 @@ public class EditorUtils {
         }
         editor.setColorScheme(getMaterialStyledScheme(editor));
         editor.setPinLineNumber(true);
+    }
+
+    /**
+     * Configure editor with optimized settings for better performance and usability.
+     * This method applies common performance optimizations and sensible defaults.
+     * 
+     * @param editor The CodeEditor instance to configure
+     */
+    public static void applyOptimizedSettings(CodeEditor editor) {
+        // Enable line numbers for better code navigation
+        editor.setLineNumberEnabled(true);
+        editor.setPinLineNumber(true);
+        
+        // Enable undo/redo for better editing experience
+        editor.setUndoEnabled(true);
+        
+        // Apply monospace font for code readability
+        editor.setTypefaceText(getTypeface(editor.getContext()));
     }
 }
