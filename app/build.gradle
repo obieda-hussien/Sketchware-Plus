@@ -29,6 +29,9 @@ android {
 
         buildConfigField("String", "SKETCHUB_API_KEY", "\"${System.getenv("SKETCHUB_API_KEY")}\"")
         
+        // Flag to indicate if Firebase Analytics and Crashlytics are enabled
+        buildConfigField("boolean", "FIREBASE_ENABLED", "${analyticsEnabled}")
+        
         // Enable vector drawable support for older Android versions
         vectorDrawables.useSupportLibrary = true
         
