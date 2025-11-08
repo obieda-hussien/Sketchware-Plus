@@ -109,6 +109,18 @@ public class ResourceCompiler {
             this.aapt2 = aapt2;
             this.buildAppBundle = buildAppBundle;
             compiledBuiltInLibraryResourcesDirectory = new File(SketchApplication.getContext().getCacheDir(), "compiledLibs");
+            
+            // Verify AAPT2 is ready before compilation
+            if (!aapt2.exists()) {
+                throw new RuntimeException("AAPT2 binary does not exist at: " + aapt2.getAbsolutePath());
+            }
+            
+            if (!aapt2.canExecute()) {
+                LogUtil.w(TAG, "AAPT2 binary is not executable, attempting to fix...");
+                if (!aapt2.setExecutable(true, false)) {
+                    throw new RuntimeException("AAPT2 binary is not executable and cannot be fixed: " + aapt2.getAbsolutePath());
+                }
+            }
         }
 
         @Override
