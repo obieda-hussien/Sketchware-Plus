@@ -265,7 +265,19 @@ public class ProjectBuilder {
         }
     }
 
+    /**
+     * Cache for classpath to avoid redundant regeneration
+     */
+    private String cachedClasspath = null;
+    private long classpathCacheTimestamp = 0;
+
     public String getClasspath() {
+        // Return cached classpath if it was generated less than 5 seconds ago
+        long currentTime = System.currentTimeMillis();
+        if (cachedClasspath != null && (currentTime - classpathCacheTimestamp) < 5000) {
+            return cachedClasspath;
+        }
+
         StringBuilder classpath = new StringBuilder();
 
         /*
@@ -316,7 +328,12 @@ public class ProjectBuilder {
         ArrayList<String> jars = FileUtil.listFiles(path, "jar");
         classpath.append(":").append(TextUtils.join(":", jars));
 
-        return classpath.toString();
+        // Cache the result
+        String result = classpath.toString();
+        cachedClasspath = result;
+        classpathCacheTimestamp = System.currentTimeMillis();
+        
+        return result;
     }
 
     /**
@@ -368,8 +385,8 @@ public class ProjectBuilder {
     private Collection<File> dexLibraries(File outputDirectory, List<File> dexes) throws Exception {
         int lastDexNumber = 1;
         String nextMergedDexFilename;
-        Collection<File> resultDexFiles = new LinkedList<>();
-        LinkedList<Dex> dexObjects = new LinkedList<>();
+        Collection<File> resultDexFiles = new ArrayList<>();
+        ArrayList<Dex> dexObjects = new ArrayList<>();
         Iterator<File> toMergeIterator = dexes.iterator();
 
         List<FieldId> mergedDexFields;
@@ -381,10 +398,10 @@ public class ProjectBuilder {
             // Closable gets closed automatically
             Dex firstDex = new Dex(new FileInputStream(toMergeIterator.next()));
             dexObjects.add(firstDex);
-            mergedDexFields = new LinkedList<>(firstDex.fieldIds());
-            mergedDexMethods = new LinkedList<>(firstDex.methodIds());
-            mergedDexProtos = new LinkedList<>(firstDex.protoIds());
-            mergedDexTypes = new LinkedList<>(firstDex.typeIds());
+            mergedDexFields = new ArrayList<>(firstDex.fieldIds());
+            mergedDexMethods = new ArrayList<>(firstDex.methodIds());
+            mergedDexProtos = new ArrayList<>(firstDex.protoIds());
+            mergedDexTypes = new ArrayList<>(firstDex.typeIds());
         }
 
         while (toMergeIterator.hasNext()) {
@@ -395,10 +412,10 @@ public class ProjectBuilder {
             Dex dex = new Dex(new FileInputStream(dexFile));
 
             boolean canMerge = true;
-            List<FieldId> newDexFieldIds = new LinkedList<>();
-            List<MethodId> newDexMethodIds = new LinkedList<>();
-            List<ProtoId> newDexProtoIds = new LinkedList<>();
-            List<Integer> newDexTypeIds = new LinkedList<>();
+            List<FieldId> newDexFieldIds = new ArrayList<>();
+            List<MethodId> newDexMethodIds = new ArrayList<>();
+            List<ProtoId> newDexProtoIds = new ArrayList<>();
+            List<Integer> newDexTypeIds = new ArrayList<>();
 
             bruh:
             {
@@ -510,7 +527,7 @@ public class ProjectBuilder {
 
         class EclipseOutOutputStream extends OutputStream {
 
-            private final StringBuffer mBuffer = new StringBuffer();
+            private final StringBuilder mBuffer = new StringBuilder();
 
             @Override
             public void write(int b) {
@@ -524,7 +541,7 @@ public class ProjectBuilder {
 
         class EclipseErrOutputStream extends OutputStream {
 
-            private final StringBuffer mBuffer = new StringBuffer();
+            private final StringBuilder mBuffer = new StringBuilder();
 
             @Override
             public void write(int b) {
@@ -661,9 +678,13 @@ public class ProjectBuilder {
         long savedTimeMillis = System.currentTimeMillis();
         ArrayList<File> dexes = new ArrayList<>();
 
+        LogUtil.d(TAG, "Starting DEX preparation for minSdk " + settings.getMinSdkVersion());
+
         /* Add AndroidX MultiDex library if needed */
         if (settings.getMinSdkVersion() < 21) {
-            dexes.add(BuiltInLibraries.getLibraryDexFile(BuiltInLibraries.ANDROIDX_MULTIDEX));
+            File multiDexFile = BuiltInLibraries.getLibraryDexFile(BuiltInLibraries.ANDROIDX_MULTIDEX);
+            dexes.add(multiDexFile);
+            LogUtil.d(TAG, "Added MultiDex library: " + multiDexFile.getAbsolutePath());
         }
 
         /* Add HTTP legacy files if wanted */
@@ -1006,5 +1027,13 @@ public class ProjectBuilder {
 
     public void setBuildAppBundle(boolean buildAppBundle) {
         this.buildAppBundle = buildAppBundle;
+    }
+
+    /**
+     * Clear the cached classpath. Should be called when dependencies change.
+     */
+    public void clearClasspathCache() {
+        cachedClasspath = null;
+        classpathCacheTimestamp = 0;
     }
 }
